@@ -1,18 +1,137 @@
-import { useOutletContext, useNavigate } from "react-router-dom"
-import { dummyData } from "../data/dummyData.js"
-import { AlertCircle, Bed, Truck, Users } from "lucide-react"
+import { useEffect, useState } from "react";
+import { useOutletContext, useNavigate } from "react-router-dom";
+import { dummyData } from "../data/dummyData.js";
+import { AlertCircle, Bed, Truck, Users } from "lucide-react";
+import { supabase } from "../supabase";
 
 const Dashboard = () => {
-  const { user } = useOutletContext()
-  const navigate = useNavigate()
+  const { user } = useOutletContext();
+  const navigate = useNavigate();
+  const [counts, setCounts] = useState({
+    emergencies: 0,
+    drivers: 0,
+    ambulances: 0,
+    beds: { available: 180, total: 250 },
+  });
+  const [loading, setLoading] = useState(true);
+
+  const fetchStats = async () => {
+    try {
+      // 1. Auth se ID nikaalna (Sahi ID mil rahi hai console ke hisab se)
+      const {
+        data: { user: authUser },
+      } = await supabase.auth.getUser();
+      const hId = authUser?.id;
+
+      if (!hId) return;
+
+      console.log("Fetching REAL data for:", hId);
+
+      // Sabhi counts ek saath fetch karein
+      const [eRes, dRes, aRes] = await Promise.all([
+        supabase
+          .from("emergency_requests")
+          .select("*", { count: "exact", head: true })
+          .or(`status.eq.pending,accepted_by_hospital_id.eq.${hId}`)
+          .not("status", "in", '("completed","rejected")'),
+        supabase
+          .from("drivers")
+          .select("*", { count: "exact", head: true })
+          .eq("hospital_id", hId),
+        supabase
+          .from("ambulances")
+          .select("*", { count: "exact", head: true })
+          .eq("hospital_id", hId),
+      ]);
+
+      setCounts((prev) => ({
+        ...prev,
+        emergencies: eRes.count || 0,
+        drivers: dRes.count || 0,
+        ambulances: aRes.count || 0,
+      }));
+    } catch (err) {
+      console.error("Stats Fetch Error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchStats();
+
+    // 2. Location API ko 'no-cors' mode ya simple try-catch mein rakhein
+    const autoSyncLocation = async () => {
+      try {
+        const {
+          data: { user: authUser },
+        } = await supabase.auth.getUser();
+        if (!authUser) return;
+
+        navigator.geolocation.getCurrentPosition(async (pos) => {
+          const { latitude, longitude } = pos.coords;
+
+          // Nominatim API kai baar localhost ko block karti hai
+          // Isliye hum isse optional bana rahe hain
+          let addr = "Location Updated";
+          try {
+            const res = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`,
+              {
+                headers: { "Accept-Language": "en" },
+              },
+            );
+            const d = await res.json();
+            addr = `${d.address.city || d.address.town || "Unknown"}, ${d.address.state || ""}`;
+          } catch (e) {
+            console.log("Address fetch skipped due to CORS/Network");
+          }
+
+          await supabase.from("hospitals").upsert(
+            {
+              profile_id: authUser.id,
+              hospital_name: user?.hospital || "Apollo Hospitals",
+              latitude,
+              longitude,
+              address: addr,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "profile_id" },
+          );
+        });
+      } catch (e) {
+        console.log("Location sync error:", e);
+      }
+    };
+
+    autoSyncLocation();
+
+    const channel = supabase
+      .channel("db-changes")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "emergency_requests" },
+        fetchStats,
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "drivers" },
+        fetchStats,
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "ambulances" },
+        fetchStats,
+      )
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, [user]);
 
   return (
     <div className="space-y-8">
-
-      {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-
-        {/* Emergencies */}
+        {/* 1. Active Emergencies - Real Count */}
         <div
           onClick={() => navigate("/emergencies")}
           className="emergency-card p-8 text-center cursor-pointer hover:scale-105 transition"
@@ -20,17 +139,14 @@ const Dashboard = () => {
           <div className="w-16 h-16 bg-gradient-to-r from-primary to-red-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
             <AlertCircle className="w-8 h-8 text-white" />
           </div>
-
+          {/* BADLAW YAHAN HAI: user.alerts ki jagah counts.emergencies */}
           <h3 className="text-2xl font-bold text-navy mb-2">
-            {user.alerts}
+            {counts.emergencies}
           </h3>
-
-          <p className="text-gray-600 font-medium">
-            Active Emergencies
-          </p>
+          <p className="text-gray-600 font-medium">Active Emergencies</p>
         </div>
 
-        {/* Beds */}
+        {/* 2. Available Beds - Abhi ke liye dummy hi hai */}
         <div
           onClick={() => navigate("/beds")}
           className="emergency-card p-8 text-center cursor-pointer hover:scale-105 transition"
@@ -38,17 +154,13 @@ const Dashboard = () => {
           <div className="w-16 h-16 bg-gradient-to-r from-medical-blue to-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
             <Bed className="w-8 h-8 text-white" />
           </div>
-
           <h3 className="text-2xl font-bold text-navy mb-2">
-            {dummyData.beds.available}/{dummyData.beds.total}
+            {counts.beds.available}/{counts.beds.total}
           </h3>
-
-          <p className="text-gray-600 font-medium">
-            Available Beds
-          </p>
+          <p className="text-gray-600 font-medium">Available Beds</p>
         </div>
 
-        {/* Drivers */}
+        {/* 3. Available Drivers - Real Count */}
         <div
           onClick={() => navigate("/drivers")}
           className="emergency-card p-8 text-center cursor-pointer hover:scale-105 transition"
@@ -56,19 +168,14 @@ const Dashboard = () => {
           <div className="w-16 h-16 bg-gradient-to-r from-green-500 to-green-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
             <Users className="w-8 h-8 text-white" />
           </div>
-
+          {/* BADLAW YAHAN HAI: dummyData ki jagah counts.drivers */}
           <h3 className="text-2xl font-bold text-navy mb-2">
-            {dummyData.drivers.filter(
-              (d) => d.status === "available"
-            ).length}
+            {counts.drivers}
           </h3>
-
-          <p className="text-gray-600 font-medium">
-            Available Drivers
-          </p>
+          <p className="text-gray-600 font-medium">Registered Drivers</p>
         </div>
 
-        {/* Ambulances */}
+        {/* 4. Total Ambulances - Real Count */}
         <div
           onClick={() => navigate("/ambulance")}
           className="emergency-card p-8 text-center cursor-pointer hover:scale-105 transition"
@@ -76,29 +183,18 @@ const Dashboard = () => {
           <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
             <Truck className="w-8 h-8 text-white" />
           </div>
-
+          {/* BADLAW YAHAN HAI: dummyData ki jagah counts.ambulances */}
           <h3 className="text-2xl font-bold text-navy mb-2">
-            {dummyData.ambulances.length}
+            {counts.ambulances}
           </h3>
-
-          <p className="text-gray-600 font-medium">
-            Total Ambulances
-          </p>
+          <p className="text-gray-600 font-medium">Total Ambulances</p>
         </div>
-
       </div>
 
-
-      {/* Quick Actions */}
+      {/* Quick Actions (Baki sab sahi hai) */}
       <div className="emergency-card p-8">
-
-        <h2 className="text-2xl font-bold text-navy mb-6">
-          Quick Actions
-        </h2>
-
+        <h2 className="text-2xl font-bold text-navy mb-6">Quick Actions</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-
-          {/* Emergency Requests */}
           <button
             onClick={() => navigate("/emergencies")}
             className="btn-primary text-left p-6 h-24 flex items-center space-x-4"
@@ -107,7 +203,6 @@ const Dashboard = () => {
             <span>View Emergency Requests</span>
           </button>
 
-          {/* Beds */}
           <button
             onClick={() => navigate("/beds")}
             className="btn-secondary text-left p-6 h-24 flex items-center space-x-4"
@@ -116,7 +211,6 @@ const Dashboard = () => {
             <span>Update Bed Status</span>
           </button>
 
-          {/* Drivers */}
           <button
             onClick={() => navigate("/drivers")}
             className="bg-gradient-to-r from-medical-blue to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white text-left p-6 h-24 flex items-center space-x-4 rounded-2xl shadow-lg hover:shadow-xl"
@@ -124,13 +218,10 @@ const Dashboard = () => {
             <Users className="w-8 h-8" />
             <span>Assign Driver</span>
           </button>
-
         </div>
-
       </div>
-
     </div>
-  )
-}
+  );
+};
 
-export default Dashboard
+export default Dashboard;

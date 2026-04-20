@@ -1,356 +1,342 @@
-import { useState } from "react";
-import { dummyData } from "../data/dummyData.js";
+import { useState, useEffect, useCallback } from "react";
+import { useAuth } from "../context/AuthContext.jsx";
+import { supabase, supabaseAdmin } from "../supabase";
 import {
   Users,
   Plus,
-  Edit3,
   Trash2,
   ToggleLeft,
   ToggleRight,
-  Phone,
   X,
   Save,
+  Loader2,
+  Truck,
+  Mail,
+  Lock,
 } from "lucide-react";
 
 const DriverManagement = () => {
-  const [drivers, setDrivers] = useState(dummyData.drivers);
-
+  const { currentUser } = useAuth();
+  const [drivers, setDrivers] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
-  const [showEdit, setShowEdit] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
-  const [showDelete, setShowDelete] = useState(false);
-  const [driverToDelete, setDriverToDelete] = useState(null);
+  const fetchDrivers = useCallback(async () => {
+    try {
+      setLoading(true);
+      if (!currentUser?.id) {
+        console.log("Waiting for User ID...");
+        return;
+      }
 
-  const [editingDriver, setEditingDriver] = useState(null);
+      console.log("Fetching drivers for Hospital ID:", currentUser.id);
 
-  const [formData, setFormData] = useState({
-    name: "",
-    license: "",
-    aadhaar: "",
-    email: "",
-    vehicle: "",
-    phone: "",
-    address: "",
-    status: "available",
-  });
+      const { data, error } = await supabase
+        .from("drivers")
+        .select("*")
+        .eq("hospital_id", currentUser.id) // Ensure karo column name exact yahi ho
+        .order("created_at", { ascending: false });
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case "available":
-        return "bg-green-100 text-green-800 border-green-200";
-      case "on-duty":
-        return "bg-yellow-100 text-yellow-800 border-yellow-200";
-      case "offline":
-        return "bg-red-100 text-red-800 border-red-200";
-      default:
-        return "bg-gray-100 text-gray-800 border-gray-200";
+      if (error) throw error;
+
+      console.log("Drivers found:", data);
+      setDrivers(data || []);
+    } catch (e) {
+      console.error("Fetch Error details:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    // Jab tak currentUser ya uski ID na mile, fetch mat karo
+    if (currentUser?.id) {
+      fetchDrivers();
+
+      const channel = supabase
+        .channel("driver-status-changes")
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "drivers",
+            filter: `hospital_id=eq.${currentUser.id}`, // Seedhe ID use karo
+          },
+          () => fetchDrivers(),
+        )
+        .subscribe();
+
+      return () => supabase.removeChannel(channel);
+    }
+  }, [currentUser?.id, fetchDrivers]);
+
+  const toggleStatus = async (driverId, currentStatus) => {
+    try {
+      const newStatus = currentStatus === "available" ? "offline" : "available";
+      const { error } = await supabase
+        .from("drivers")
+        .update({ status: newStatus })
+        .eq("id", driverId);
+      if (error) throw error;
+    } catch (e) {
+      alert("Toggle failed: " + e.message);
     }
   };
 
-  const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
+  const handleAddDriver = async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const email = formData.get("email");
+    const password = formData.get("password");
+    const name = formData.get("name");
+    const phone = formData.get("phone");
+    const vehicle = formData.get("vehicle");
+
+    try {
+      setActionLoading(true);
+
+      // 1. FIXED: supabaseAdmin use karein taaki Admin logout na ho
+      const { data: authData, error: authError } =
+        await supabaseAdmin.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              full_name: name,
+              role: "driver",
+              hospital_id: currentUser.id, // Hospital linking
+            },
+          },
+        });
+
+      if (authError) throw authError;
+      if (!authData.user) throw new Error("User creation failed.");
+
+      const driverUid = authData.user.id;
+
+      // 2. Profile Table mein data insert karein
+      const { error: profileError } = await supabase.from("profiles").insert([
+        {
+          id: driverUid,
+          role: "driver",
+          full_name: name,
+          email: email,
+          phone: phone,
+          hospital_id: currentUser.id,
+        },
+      ]);
+      if (profileError) throw profileError;
+
+      // 3. Drivers Table mein entry (is se naya hospital generate nahi hoga)
+      const { error: driverTableError } = await supabase
+        .from("drivers")
+        .upsert({
+          id: driverUid,
+          name: name,
+          vehicle: vehicle,
+          hospital_id: currentUser.id,
+          status: "available",
+        });
+
+      if (driverTableError) throw driverTableError;
+
+      setShowAdd(false);
+      fetchDrivers();
+      alert("✅ Driver created successfully! You are still logged in.");
+    } catch (err) {
+      alert("Error: " + err.message);
+    } finally {
+      setActionLoading(false);
+    }
   };
 
-  const addDriver = () => {
-    const newDriver = {
-      id: Date.now(),
-      ...formData,
-    };
-
-    setDrivers([...drivers, newDriver]);
-    setShowAdd(false);
-
-    setFormData({
-      name: "",
-      license: "",
-      aadhaar: "",
-      email: "",
-      vehicle: "",
-      phone: "",
-      address: "",
-      status: "available",
-    });
-  };
-
-  const openDeleteConfirm = (driver) => {
-    setDriverToDelete(driver);
-    setShowDelete(true);
-  };
-
-  const confirmDelete = () => {
-    setDrivers(drivers.filter((d) => d.id !== driverToDelete.id));
-    setShowDelete(false);
-    setDriverToDelete(null);
-  };
-
-  const openEdit = (driver) => {
-    setEditingDriver(driver);
-    setFormData(driver);
-    setShowEdit(true);
-  };
-
-  const saveEdit = () => {
-    const updated = drivers.map((d) =>
-      d.id === editingDriver.id ? { ...d, ...formData } : d
+  if (loading)
+    return (
+      <div className="flex justify-center items-center min-h-[400px]">
+        <Loader2 className="animate-spin text-red-600" size={40} />
+      </div>
     );
-
-    setDrivers(updated);
-    setShowEdit(false);
-  };
-
-  const toggleStatus = (id) => {
-    const updated = drivers.map((d) =>
-      d.id === id
-        ? {
-            ...d,
-            status: d.status === "available" ? "offline" : "available",
-          }
-        : d
-    );
-
-    setDrivers(updated);
-  };
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-navy flex items-center space-x-3">
-          <Users className="w-10 h-10" />
+    <div className="space-y-8 p-6 relative">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <h1 className="text-3xl font-bold text-slate-900 flex items-center space-x-3">
+          <div className="p-3 bg-red-50 rounded-2xl">
+            <Users className="w-8 h-8 text-red-600" />
+          </div>
           <span>Driver Management</span>
         </h1>
-
         <button
           onClick={() => setShowAdd(true)}
-          className="btn-primary flex items-center space-x-2"
+          className="bg-red-600 hover:bg-red-700 text-white px-8 py-4 rounded-2xl font-bold shadow-lg transition-all flex items-center space-x-2"
         >
-          <Plus className="w-5 h-5" />
-          <span>Add Driver</span>
+          <Plus size={20} />
+          <span>Add New Driver</span>
         </button>
       </div>
-
-      {/* Driver Cards */}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {drivers.map((driver) => (
-          <div
-            key={driver.id}
-            className="emergency-card p-6 hover:shadow-xl transition-all"
-          >
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-center space-x-3">
-                <div className="w-12 h-12 bg-gradient-to-r from-medical-blue to-blue-600 rounded-xl flex items-center justify-center">
-                  <Users className="w-6 h-6 text-white" />
-                </div>
-
-                <div>
-                  <h3 className="font-bold text-xl text-navy">
-                    {driver.name}
-                  </h3>
-                  <p className="text-sm text-gray-600">{driver.vehicle}</p>
-                </div>
-              </div>
-
-              <span
-                className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusColor(
-                  driver.status
-                )}`}
-              >
-                {driver.status.toUpperCase()}
-              </span>
-            </div>
-
-            <div className="space-y-3 mb-6">
-              <div className="flex items-center space-x-3 text-sm">
-                <Phone className="w-4 h-4 text-gray-500" />
-                <span>{driver.phone}</span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between pt-4 border-t border-slate-200">
-              <div className="flex space-x-2">
-                <button
-                  onClick={() => openEdit(driver)}
-                  className="p-2 hover:bg-slate-100 rounded-xl"
-                >
-                  <Edit3 className="w-4 h-4 text-gray-600" />
-                </button>
-
-                <button
-                  onClick={() => openDeleteConfirm(driver)}
-                  className="p-2 hover:bg-red-50 rounded-xl"
-                >
-                  <Trash2 className="w-4 h-4 text-red-600" />
-                </button>
-              </div>
-
-              <button
-                onClick={() => toggleStatus(driver.id)}
-                className="btn-secondary px-4 py-2 text-sm flex items-center space-x-1"
-              >
-                {driver.status === "available" ? (
-                  <ToggleLeft className="w-4 h-4" />
-                ) : (
-                  <ToggleRight className="w-4 h-4" />
-                )}
-                <span>Toggle</span>
-              </button>
-            </div>
+        {drivers.length === 0 ? (
+          <div className="col-span-full py-20 text-center bg-white rounded-[32px] border-2 border-dashed border-slate-100">
+            <p className="text-slate-400 font-medium">No drivers added yet.</p>
           </div>
-        ))}
+        ) : (
+          drivers.map((driver) => (
+            <div
+              key={driver.id}
+              className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm hover:shadow-xl transition-all duration-300"
+            >
+              <div className="flex items-start justify-between mb-6">
+                <div className="flex items-center space-x-4">
+                  <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400">
+                    <Truck size={28} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-lg text-slate-900">
+                      {driver.name}
+                    </h3>
+                    <p className="text-sm text-slate-400 font-medium">
+                      {driver.vehicle}
+                    </p>
+                  </div>
+                </div>
+                <span
+                  className={`px-3 py-1 rounded-full text-[10px] font-black border uppercase ${driver.status === "available" ? "bg-green-50 text-green-600 border-green-100" : driver.status === "busy" ? "bg-amber-50 text-amber-600 border-amber-100" : "bg-slate-50 text-slate-500 border-slate-100"}`}
+                >
+                  {driver.status}
+                </span>
+              </div>
+              <div className="flex items-center justify-between pt-5 border-t border-slate-50">
+                <button
+                  onClick={async () => {
+                    if (
+                      window.confirm(
+                        "Delete this driver? This won't delete their Auth account.",
+                      )
+                    ) {
+                      await supabase
+                        .from("drivers")
+                        .delete()
+                        .eq("id", driver.id);
+                      fetchDrivers();
+                    }
+                  }}
+                  className="text-slate-300 hover:text-red-500 p-2 rounded-xl transition-all"
+                >
+                  <Trash2 size={18} />
+                </button>
+                <button
+                  onClick={() => toggleStatus(driver.id, driver.status)}
+                  disabled={driver.status === "busy"}
+                  className={`flex items-center space-x-2 px-4 py-2 rounded-xl transition-all ${driver.status === "available" ? "bg-green-50 text-green-600" : "bg-slate-50 text-slate-400"}`}
+                >
+                  {driver.status === "available" ? (
+                    <ToggleRight size={28} />
+                  ) : (
+                    <ToggleLeft size={28} />
+                  )}
+                  <span className="text-sm font-bold uppercase tracking-tight">
+                    {driver.status === "available" ? "Online" : "Offline"}
+                  </span>
+                </button>
+              </div>
+            </div>
+          ))
+        )}
       </div>
-
-      {/* ADD DRIVER POPUP */}
 
       {showAdd && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl w-[500px] p-6 shadow-2xl">
-            <div className="flex justify-between mb-4">
-              <h2 className="text-xl font-bold">Add Driver</h2>
-              <button onClick={() => setShowAdd(false)}>
-                <X />
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              <input name="name" placeholder="Driver Name" onChange={handleChange} value={formData.name} className="w-full border rounded-lg px-3 py-2"/>
-              <input name="license" placeholder="Driving License" onChange={handleChange} value={formData.license} className="w-full border rounded-lg px-3 py-2"/>
-              <input name="aadhaar" placeholder="Aadhaar Number" onChange={handleChange} value={formData.aadhaar} className="w-full border rounded-lg px-3 py-2"/>
-              <input name="email" placeholder="Email" onChange={handleChange} value={formData.email} className="w-full border rounded-lg px-3 py-2"/>
-              <input name="vehicle" placeholder="Vehicle Number" onChange={handleChange} value={formData.vehicle} className="w-full border rounded-lg px-3 py-2"/>
-              <input name="phone" placeholder="Phone" onChange={handleChange} value={formData.phone} className="w-full border rounded-lg px-3 py-2"/>
-              <textarea name="address" placeholder="Address" onChange={handleChange} value={formData.address} className="w-full border rounded-lg px-3 py-2"/>
-            </div>
-
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-[40px] w-full max-w-md p-10 shadow-2xl relative animate-in zoom-in-95 duration-200 overflow-y-auto max-h-[90vh]">
             <button
-              onClick={addDriver}
-              className="mt-6 w-full btn-primary flex items-center justify-center space-x-2"
+              onClick={() => setShowAdd(false)}
+              className="absolute top-6 right-6 p-2 text-slate-400"
             >
-              <Save className="w-5 h-5" />
-              <span>Save Driver</span>
+              <X size={24} />
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* EDIT DRIVER POPUP */}
-
-{showEdit && (
-  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-
-    <div className="bg-white rounded-2xl w-[500px] p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
-
-      <div className="flex justify-between mb-4">
-        <h2 className="text-xl font-bold">Edit Driver</h2>
-
-        <button onClick={() => setShowEdit(false)}>
-          <X />
-        </button>
-      </div>
-
-      <div className="space-y-3">
-
-        <input
-          name="name"
-          placeholder="Driver Name"
-          value={formData.name}
-          onChange={handleChange}
-          className="w-full border rounded-lg px-3 py-2"
-        />
-
-        <input
-          name="license"
-          placeholder="Driving License Number"
-          value={formData.license}
-          onChange={handleChange}
-          className="w-full border rounded-lg px-3 py-2"
-        />
-
-        <input
-          name="aadhaar"
-          placeholder="Aadhaar Number"
-          value={formData.aadhaar}
-          onChange={handleChange}
-          className="w-full border rounded-lg px-3 py-2"
-        />
-
-        <input
-          name="email"
-          placeholder="Email ID"
-          value={formData.email}
-          onChange={handleChange}
-          className="w-full border rounded-lg px-3 py-2"
-        />
-
-        <input
-          name="vehicle"
-          placeholder="Vehicle Number"
-          value={formData.vehicle}
-          onChange={handleChange}
-          className="w-full border rounded-lg px-3 py-2"
-        />
-
-        <input
-          name="phone"
-          placeholder="Phone Number"
-          value={formData.phone}
-          onChange={handleChange}
-          className="w-full border rounded-lg px-3 py-2"
-        />
-
-        <textarea
-          name="address"
-          placeholder="Address"
-          value={formData.address}
-          onChange={handleChange}
-          className="w-full border rounded-lg px-3 py-2"
-        />
-
-      </div>
-
-      <button
-        onClick={saveEdit}
-        className="mt-6 w-full btn-primary flex items-center justify-center space-x-2"
-      >
-        <Save className="w-5 h-5" />
-        <span>Update Driver</span>
-      </button>
-
-    </div>
-
-  </div>
-)}
-
-      {/* DELETE CONFIRMATION */}
-
-      {showDelete && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl w-[350px] p-6 shadow-2xl text-center">
-            <h2 className="text-lg font-bold mb-4">Delete Driver</h2>
-
-            <p className="text-gray-600 mb-6">
-              Are you sure you want to delete this driver?
-            </p>
-
-            <div className="flex justify-center space-x-4">
-              <button
-                onClick={() => setShowDelete(false)}
-                className="px-4 py-2 bg-gray-200 rounded-lg"
-              >
-                Cancel
-              </button>
-
-              <button
-                onClick={confirmDelete}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg"
-              >
-                Confirm
-              </button>
+            <div className="mb-8">
+              <h2 className="text-2xl font-black text-slate-900">
+                Add New Driver
+              </h2>
+              <p className="text-slate-400 text-sm mt-1">
+                Register a new ambulance driver account.
+              </p>
             </div>
+            <form onSubmit={handleAddDriver} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs font-black text-slate-400 uppercase ml-2">
+                  Login Email
+                </label>
+                <input
+                  name="email"
+                  type="email"
+                  required
+                  placeholder="driver@email.com"
+                  className="w-full bg-slate-50 border-2 border-transparent focus:border-red-500 rounded-2xl px-6 py-4 outline-none transition-all font-medium"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-black text-slate-400 uppercase ml-2">
+                  Initial Password
+                </label>
+                <input
+                  name="password"
+                  type="password"
+                  required
+                  placeholder="••••••••"
+                  className="w-full bg-slate-50 border-2 border-transparent focus:border-red-500 rounded-2xl px-6 py-4 outline-none transition-all font-medium"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-black text-slate-400 uppercase ml-2">
+                  Full Name
+                </label>
+                <input
+                  name="name"
+                  required
+                  placeholder="Driver's full name"
+                  className="w-full bg-slate-50 border-2 border-transparent focus:border-red-500 rounded-2xl px-6 py-4 outline-none transition-all font-medium"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-black text-slate-400 uppercase ml-2">
+                  Phone Number
+                </label>
+                <input
+                  name="phone"
+                  required
+                  placeholder="+91 00000 00000"
+                  className="w-full bg-slate-50 border-2 border-transparent focus:border-red-500 rounded-2xl px-6 py-4 outline-none transition-all font-medium"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-black text-slate-400 uppercase ml-2">
+                  Vehicle Number
+                </label>
+                <input
+                  name="vehicle"
+                  required
+                  placeholder="UP 80 XX 0000"
+                  className="w-full bg-slate-50 border-2 border-transparent focus:border-red-500 rounded-2xl px-6 py-4 outline-none transition-all font-medium"
+                />
+              </div>
+              <button
+                disabled={actionLoading}
+                type="submit"
+                className="w-full bg-red-600 hover:bg-red-700 text-white font-black py-5 rounded-2xl shadow-xl flex items-center justify-center space-x-3 transition-all disabled:opacity-50"
+              >
+                {actionLoading ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <>
+                    <Save size={20} />
+                    <span>CREATE ACCOUNT</span>
+                  </>
+                )}
+              </button>
+            </form>
           </div>
         </div>
       )}

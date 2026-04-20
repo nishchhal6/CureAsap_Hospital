@@ -1,46 +1,67 @@
-import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
-import { Hospital, Lock, Mail, Shield } from 'lucide-react'
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Hospital, Lock, Mail, Shield } from "lucide-react";
+import { supabase } from "../supabase";
 
 const Login = () => {
   const [formData, setFormData] = useState({
-    email: '',
-    password: ''
-  })
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-  const navigate = useNavigate()
+    email: "",
+    password: "",
+  });
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
   const handleChange = (e) => {
     setFormData({
       ...formData,
-      [e.target.name]: e.target.value
-    })
-    setError('')
-  }
+      [e.target.name]: e.target.value,
+    });
+    setError("");
+  };
 
   const handleSubmit = async (e) => {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
+    e.preventDefault();
+    setLoading(true);
+    setError("");
 
-    // Mock authentication - simulate API call
-    setTimeout(() => {
-      // Demo credentials: email: "admin@cureasap.com", password: "hospital123"
-      if (formData.email === 'admin@cureasap.com' && formData.password === 'hospital123') {
-        localStorage.setItem('hospitalAuth', 'loggedin')
-        navigate('/')
-      } else {
-        setError('Invalid email or password')
+    try {
+      const { data, error: authError } = await supabase.auth.signInWithPassword(
+        {
+          email: formData.email,
+          password: formData.password,
+        },
+      );
+
+      if (authError) throw authError;
+
+      if (data?.user) {
+        // Role check
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", data.user.id)
+          .maybeSingle();
+
+        if (profile?.role === "hospital") {
+          // Agar sahi hai toh seedha reload karke dashboard pe
+          window.location.href = "/";
+        } else {
+          // Agar hospital nahi hai (driver hai), toh nikaal do
+          await supabase.auth.signOut();
+          setError("Unauthorized: Only Hospital Admins can login here.");
+          setLoading(false);
+        }
       }
-      setLoading(false)
-    }, 1500)
-  }
+    } catch (err) {
+      setError(err.message || "Login failed");
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 py-12 bg-gradient-to-br from-slate-50 via-white to-slate-100">
       <div className="w-full max-w-md">
-        {/* Logo & Title */}
         <div className="text-center mb-10">
           <div className="mx-auto w-20 h-20 bg-gradient-to-r from-primary to-red-600 rounded-2xl flex items-center justify-center shadow-xl mb-6">
             <Hospital className="w-10 h-10 text-white" />
@@ -51,7 +72,6 @@ const Login = () => {
           <p className="text-gray-600 text-lg">Emergency Response Dashboard</p>
         </div>
 
-        {/* Login Form */}
         <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/50 p-8">
           <form onSubmit={handleSubmit} className="space-y-6">
             {error && (
@@ -72,7 +92,7 @@ const Login = () => {
                   name="email"
                   value={formData.email}
                   onChange={handleChange}
-                  placeholder="admin@cureasap.com"
+                  placeholder="hospital@cureasap.com"
                   className="w-full pl-12 pr-4 py-4 bg-slate-50/50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-primary/20 focus:border-primary text-navy placeholder-gray-500 transition-all duration-200 text-lg font-medium"
                   required
                 />
@@ -90,7 +110,7 @@ const Login = () => {
                   name="password"
                   value={formData.password}
                   onChange={handleChange}
-                  placeholder="hospital123"
+                  placeholder="Enter your password"
                   className="w-full pl-12 pr-4 py-4 bg-slate-50/50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-primary/20 focus:border-primary text-navy placeholder-gray-500 transition-all duration-200 text-lg font-medium"
                   required
                 />
@@ -116,23 +136,13 @@ const Login = () => {
             </button>
           </form>
 
-          {/* Demo Credentials */}
-          <div className="mt-8 pt-6 border-t border-slate-200">
-            <p className="text-center text-sm text-gray-600 mb-2">Demo Credentials:</p>
-            <div className="text-xs bg-slate-100 p-3 rounded-xl">
-              <p><span className="font-semibold">Email:</span> admin@cureasap.com</p>
-              <p><span className="font-semibold">Password:</span> hospital123</p>
-            </div>
-          </div>
-
-          {/* Footer */}
           <p className="text-center text-xs text-gray-500 mt-6">
             © 2026 CureAsap Hospital System. All rights reserved.
           </p>
         </div>
       </div>
     </div>
-  )
-}
+  );
+};
 
-export default Login
+export default Login;
