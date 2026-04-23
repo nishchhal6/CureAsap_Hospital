@@ -43,12 +43,30 @@ const Dashboard = () => {
           .select("*", { count: "exact", head: true })
           .eq("hospital_id", hId),
       ]);
+      const { data: bedData } = await supabase
+        .from("hospital_beds")
+        .select(
+          "general_available, icu_available, emergency_available, general_total, icu_total, emergency_total",
+        )
+        .eq("hospital_id", hId)
+        .maybeSingle();
+
+      const totalAvail =
+        (bedData?.general_available ?? 0) +
+        (bedData?.icu_available ?? 0) +
+        (bedData?.emergency_available ?? 0);
+
+      const totalCapacity =
+        (bedData?.general_total ?? 0) +
+        (bedData?.icu_total ?? 0) +
+        (bedData?.emergency_total ?? 0);
 
       setCounts((prev) => ({
         ...prev,
         emergencies: eRes.count || 0,
         drivers: dRes.count || 0,
         ambulances: aRes.count || 0,
+        beds: { available: totalAvail, total: totalCapacity }, // ⭐ Real Beds Count
       }));
     } catch (err) {
       console.error("Stats Fetch Error:", err);
@@ -131,7 +149,7 @@ const Dashboard = () => {
   return (
     <div className="space-y-8">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* 1. Active Emergencies - Real Count */}
+        {/* 1. Active Emergencies */}
         <div
           onClick={() => navigate("/emergencies")}
           className="emergency-card p-8 text-center cursor-pointer hover:scale-105 transition"
@@ -139,14 +157,13 @@ const Dashboard = () => {
           <div className="w-16 h-16 bg-gradient-to-r from-primary to-red-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
             <AlertCircle className="w-8 h-8 text-white" />
           </div>
-          {/* BADLAW YAHAN HAI: user.alerts ki jagah counts.emergencies */}
           <h3 className="text-2xl font-bold text-navy mb-2">
             {counts.emergencies}
           </h3>
           <p className="text-gray-600 font-medium">Active Emergencies</p>
         </div>
 
-        {/* 2. Available Beds - Abhi ke liye dummy hi hai */}
+        {/* 2. Available Beds */}
         <div
           onClick={() => navigate("/beds")}
           className="emergency-card p-8 text-center cursor-pointer hover:scale-105 transition"
@@ -160,7 +177,7 @@ const Dashboard = () => {
           <p className="text-gray-600 font-medium">Available Beds</p>
         </div>
 
-        {/* 3. Available Drivers - Real Count */}
+        {/* 3. Registered Drivers */}
         <div
           onClick={() => navigate("/drivers")}
           className="emergency-card p-8 text-center cursor-pointer hover:scale-105 transition"
@@ -168,14 +185,13 @@ const Dashboard = () => {
           <div className="w-16 h-16 bg-gradient-to-r from-green-500 to-green-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
             <Users className="w-8 h-8 text-white" />
           </div>
-          {/* BADLAW YAHAN HAI: dummyData ki jagah counts.drivers */}
           <h3 className="text-2xl font-bold text-navy mb-2">
             {counts.drivers}
           </h3>
           <p className="text-gray-600 font-medium">Registered Drivers</p>
         </div>
 
-        {/* 4. Total Ambulances - Real Count */}
+        {/* 4. Total Ambulances */}
         <div
           onClick={() => navigate("/ambulance")}
           className="emergency-card p-8 text-center cursor-pointer hover:scale-105 transition"
@@ -183,7 +199,6 @@ const Dashboard = () => {
           <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
             <Truck className="w-8 h-8 text-white" />
           </div>
-          {/* BADLAW YAHAN HAI: dummyData ki jagah counts.ambulances */}
           <h3 className="text-2xl font-bold text-navy mb-2">
             {counts.ambulances}
           </h3>

@@ -19,6 +19,24 @@ const DashboardLayout = () => {
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
   const { logout, currentUser } = useAuth();
+  const getPageTitle = () => {
+    switch (location.pathname) {
+      case "/":
+        return "Dashboard Overview";
+      case "/beds":
+        return "Bed Management";
+      case "/drivers":
+        return "Driver Management";
+      case "/ambulance":
+        return "Ambulance Management";
+      case "/patients":
+        return "Patient Records";
+      case "/emergencies":
+        return "Emergency Requests";
+      default:
+        return "Hospital Portal";
+    }
+  };
 
   const [user, setUser] = useState({
     hospital: "Apollo Hospitals",
@@ -150,69 +168,74 @@ const DashboardLayout = () => {
       </div>
 
       <div className="flex-1 flex flex-col">
-        <header className="bg-white border-b border-slate-200 px-8 py-5 flex justify-between relative z-40">
-          <h1 className="text-2xl font-bold">Dashboard Overview</h1>
+        {location.pathname === "/" && (
+          <header className="bg-white border-b border-slate-200 px-8 py-5 flex justify-between relative z-40">
+            <h1 className="text-2xl font-bold">Dashboard Overview</h1>
+            <div className="relative">
+              <button
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="relative p-3 hover:bg-slate-100 rounded-xl"
+              >
+                <Bell className="w-6 h-6" />
 
-          <div className="relative">
-            <button
-              onClick={() => setShowNotifications(!showNotifications)}
-              className="relative p-3 hover:bg-slate-100 rounded-xl"
-            >
-              <Bell className="w-6 h-6" />
+                {user.alerts > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-primary text-white text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold animate-pulse">
+                    {user.alerts}
+                  </span>
+                )}
+              </button>
 
-              {user.alerts > 0 && (
-                <span className="absolute -top-1 -right-1 bg-primary text-white text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold animate-pulse">
-                  {user.alerts}
-                </span>
-              )}
-            </button>
+              {showNotifications && (
+                <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50">
+                  <div className="px-6 py-4 border-b border-slate-200">
+                    <h3 className="font-bold text-lg flex items-center gap-2">
+                      <Bell className="w-5 h-5" />
+                      Notifications ({user.alerts})
+                    </h3>
+                  </div>
 
-            {showNotifications && (
-              <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50">
-                <div className="px-6 py-4 border-b border-slate-200">
-                  <h3 className="font-bold text-lg flex items-center gap-2">
-                    <Bell className="w-5 h-5" />
-                    Notifications ({user.alerts})
-                  </h3>
-                </div>
+                  <div className="max-h-96 overflow-y-auto">
+                    {notifications.map((notif) => (
+                      <div
+                        key={notif.id}
+                        className="px-6 py-4 hover:bg-slate-50 border-b border-slate-100 last:border-none"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div
+                            className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                              notif.type === "emergency"
+                                ? "bg-red-100 text-red-600"
+                                : notif.type === "bed"
+                                  ? "bg-blue-100 text-blue-600"
+                                  : "bg-green-100 text-green-600"
+                            }`}
+                          >
+                            {notif.type === "emergency" ? (
+                              <AlertCircle className="w-5 h-5" />
+                            ) : notif.type === "bed" ? (
+                              <Bed className="w-5 h-5" />
+                            ) : (
+                              <Truck className="w-5 h-5" />
+                            )}
+                          </div>
 
-                <div className="max-h-96 overflow-y-auto">
-                  {notifications.map((notif) => (
-                    <div
-                      key={notif.id}
-                      className="px-6 py-4 hover:bg-slate-50 border-b border-slate-100 last:border-none"
-                    >
-                      <div className="flex items-start gap-3">
-                        <div
-                          className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                            notif.type === "emergency"
-                              ? "bg-red-100 text-red-600"
-                              : notif.type === "bed"
-                                ? "bg-blue-100 text-blue-600"
-                                : "bg-green-100 text-green-600"
-                          }`}
-                        >
-                          {notif.type === "emergency" ? (
-                            <AlertCircle className="w-5 h-5" />
-                          ) : notif.type === "bed" ? (
-                            <Bed className="w-5 h-5" />
-                          ) : (
-                            <Truck className="w-5 h-5" />
-                          )}
-                        </div>
-
-                        <div>
-                          <p className="font-semibold text-sm">{notif.title}</p>
-                          <p className="text-xs text-gray-500">{notif.time}</p>
+                          <div>
+                            <p className="font-semibold text-sm">
+                              {notif.title}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {notif.time}
+                            </p>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-        </header>
+              )}
+            </div>
+          </header>
+        )}
 
         <main className="flex-1 overflow-auto p-8">
           <Outlet context={{ user, setUser }} />
