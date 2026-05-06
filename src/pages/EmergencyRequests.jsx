@@ -84,30 +84,51 @@ const EmergencyRequests = () => {
   useEffect(() => {
     if (!currentUser?.id) return;
 
+    // Initial fetch
     fetchEmergencyRequests();
     fetchAvailableDrivers();
 
+    const hospitalId = currentUser?.hospitalId || currentUser?.id;
+
     const channel = supabase
-      .channel(`emergency-updates-all`)
+      .channel("emergency-dashboard")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "emergency_requests" },
-        () => fetchEmergencyRequests(),
+        (payload) => {
+          console.log("Realtime Request Update:", payload);
+
+          if (payload.eventType === "INSERT") {
+            // Nayi request aane par list ke upar add karo
+            setRequests((prev) => [payload.new, ...prev]);
+          } else if (payload.eventType === "UPDATE") {
+            // Status change hone par list update karo
+            setRequests((prev) =>
+              prev.map((req) =>
+                req.id === payload.new.id ? payload.new : req,
+              ),
+            );
+
+            // Agar request completed ya rejected ho gayi toh list se hata do
+            if (
+              payload.new.status === "completed" ||
+              payload.new.status === "rejected"
+            ) {
+              setRequests((prev) =>
+                prev.filter((req) => req.id !== payload.new.id),
+              );
+            }
+          } else if (payload.eventType === "DELETE") {
+            setRequests((prev) =>
+              prev.filter((req) => req.id !== payload.old.id),
+            );
+          }
+        },
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "drivers" },
-        () => fetchAvailableDrivers(),
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "hospital_beds",
-          filter: `hospital_id=eq.${currentUser.id}`,
-        },
-        () => fetchEmergencyRequests(),
+        () => fetchAvailableDrivers(), // Drivers list simple hai, isse reload kar sakte hain
       )
       .subscribe();
 
@@ -175,41 +196,32 @@ const EmergencyRequests = () => {
       const hospitalName =
         currentUser?.profile?.full_name || "Apollo Hospital Agra";
 
-      const { error: reqError } = await supabase
+      const { error } = await supabase
         .from("emergency_requests")
         .update({
           status: "driver_assigned",
-          assigned_driver_id: driverId,
-          // --- YE TEEN LINES ADD KAREIN ---
-          hospital_name: hospitalName,
-          driver_name: selectedDriver?.name,
-          vehicle_no: selectedDriver?.vehicle,
-          // -------------------------------
-          updated_at: new Date().toISOString(),
+          assigned_driver_id: driverId, // DB mein ye column hai
+          hospital_name: hospitalName, // DB mein ye column hai
+          // vehicle_no: selectedDriver?.vehicle, ❌ IS LINE KO HATA DO ya DB mein column add karo
         })
         .eq("id", assigningRequestId);
 
-      if (reqError) throw reqError;
-
-      await supabase
-        .from("drivers")
-        .update({ status: "busy" })
-        .eq("id", driverId);
-
-      setRequests((prev) =>
-        prev.map((req) =>
-          req.id === assigningRequestId
-            ? {
-                ...req,
-                status: "driver_assigned",
-                assigned_driver_id: driverId,
-                hospital_name: hospitalName,
-                driver_name: selectedDriver?.name,
-                vehicle_no: selectedDriver?.vehicle,
-              }
-            : req,
-        ),
-      );
+      if (!error) {
+        // Local state update (Ye sahi hai, kyunki ye sirf UI ke liye hai)
+        setRequests((prev) =>
+          prev.map((req) =>
+            req.id === assigningRequestId
+              ? {
+                  ...req,
+                  status: "driver_assigned",
+                  assigned_driver_id: driverId,
+                  hospital_name: hospitalName,
+                  vehicle_no: selectedDriver?.vehicle, // UI ke liye theek hai
+                }
+              : req,
+          ),
+        );
+      }
 
       setShowAssignModal(false);
       setAssigningRequestId(null);
