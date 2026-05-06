@@ -1,15 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 import { useAuth } from "../context/AuthContext.jsx";
-import {
-  User,
-  Bed,
-  Clock,
-  Phone,
-  MapPin,
-  CheckCircle,
-  XCircle,
-} from "lucide-react";
+import { User, Phone, MapPin, Clock, CheckCircle, XCircle } from "lucide-react";
 
 const PatientRecords = () => {
   const { currentUser } = useAuth();
@@ -17,50 +9,35 @@ const PatientRecords = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchHospitalRecords();
+    if (currentUser) {
+      fetchHospitalRecords();
+    }
   }, [currentUser]);
 
   const fetchHospitalRecords = async () => {
     try {
       setLoading(true);
 
-      // 1. Pehle check karo ki currentUser mein kya data hai
-      console.log("Current User Data:", currentUser);
-
-      // 2. Hospital ka naam nikalne ka sahi tarika (Check labels carefully)
-      const hospitalNameFromAuth =
-        currentUser?.hospitalName ||
-        currentUser?.name ||
-        currentUser?.full_name;
-
-      if (!hospitalNameFromAuth) {
-        console.error("Hospital name not found in Auth Context!");
-        setLoading(false);
-        return;
-      }
-
-      console.log("Filtering records for hospital:", hospitalNameFromAuth);
-
-      // 3. Supabase Query
+      // Filter (.eq ya .ilike) hata diya hai taaki agar hospital_name empty bhi ho,
+      // toh records nazar aayein.
       const { data, error } = await supabase
         .from("emergency_records")
         .select("*")
-        .eq("hospital_name", hospitalNameFromAuth) // Exact match check
-        .order("completed_at", { ascending: false });
+        .order("created_at", { ascending: false });
 
       if (error) throw error;
 
-      console.log("Data fetched from Supabase:", data);
+      console.log("Fetched Data:", data);
       setRecords(data || []);
     } catch (error) {
-      console.error("Error fetching records:", error.message);
+      console.error("Error:", error.message);
     } finally {
       setLoading(false);
     }
   };
 
   const getStatusStyle = (status) => {
-    switch (status) {
+    switch (status?.toLowerCase()) {
       case "completed":
         return "bg-green-100 text-green-800 border-green-200";
       case "rejected":
@@ -71,47 +48,53 @@ const PatientRecords = () => {
   };
 
   if (loading)
-    return <div className="p-10 text-center">Loading Records...</div>;
+    return (
+      <div className="p-10 text-center animate-pulse text-navy font-semibold">
+        Loading Hospital Records...
+      </div>
+    );
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 p-4">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-navy flex items-center space-x-3">
           <User className="w-10 h-10 text-primary" />
           <span>Completed Emergency Records</span>
         </h1>
-        <div className="text-sm text-slate-500 bg-slate-100 px-4 py-2 rounded-lg">
+        <div className="text-sm font-bold text-slate-600 bg-slate-100 px-4 py-2 rounded-lg border border-slate-200">
           Total Cases: {records.length}
         </div>
       </div>
 
-      <div className="emergency-card overflow-hidden bg-white shadow-xl rounded-3xl border border-slate-200">
+      <div className="overflow-hidden bg-white shadow-xl rounded-3xl border border-slate-200">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="text-left p-4 font-semibold text-navy">
+                <th className="text-left p-4 font-bold text-navy">
                   Patient & Contact
                 </th>
-                <th className="text-left p-4 font-semibold text-navy">
+                <th className="text-left p-4 font-bold text-navy">
                   Driver / Ambulance
                 </th>
-                <th className="text-left p-4 font-semibold text-navy">
-                  Address
-                </th>
-                <th className="text-left p-4 font-semibold text-navy">
+                <th className="text-left p-4 font-bold text-navy">Address</th>
+                <th className="text-left p-4 font-bold text-navy">
                   Completed At
                 </th>
-                <th className="text-left p-4 font-semibold text-navy">
-                  Status
-                </th>
+                <th className="text-left p-4 font-bold text-navy">Status</th>
               </tr>
             </thead>
             <tbody>
               {records.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="p-10 text-center text-slate-400">
-                    No records found for this hospital.
+                  <td colSpan="5" className="p-20 text-center text-slate-400">
+                    <div className="flex flex-col items-center gap-2">
+                      <Clock className="w-8 h-8 opacity-20" />
+                      <p>
+                        No records found for "
+                        {currentUser?.profile?.full_name || "this hospital"}".
+                      </p>
+                    </div>
                   </td>
                 </tr>
               ) : (
@@ -133,7 +116,7 @@ const PatientRecords = () => {
                         {record.driver_name || "N/A"}
                       </div>
                       <div className="text-xs text-blue-600 font-bold">
-                        {record.vehicle_no}
+                        {record.vehicle_no || "No Vehicle"}
                       </div>
                     </td>
                     <td className="p-4">
@@ -144,10 +127,15 @@ const PatientRecords = () => {
                     <td className="p-4">
                       <div className="text-xs text-slate-500 flex items-center gap-1">
                         <Clock className="w-3 h-3" />
-                        {new Date(record.completed_at).toLocaleString("en-IN", {
-                          dateStyle: "medium",
-                          timeStyle: "short",
-                        })}
+                        {record.completed_at
+                          ? new Date(record.completed_at).toLocaleString(
+                              "en-IN",
+                              {
+                                dateStyle: "medium",
+                                timeStyle: "short",
+                              },
+                            )
+                          : "Processing..."}
                       </div>
                     </td>
                     <td className="p-4">
@@ -159,7 +147,7 @@ const PatientRecords = () => {
                         ) : (
                           <XCircle className="w-3 h-3" />
                         )}
-                        {record.status?.toUpperCase()}
+                        {record.status?.toUpperCase() || "PENDING"}
                       </span>
                     </td>
                   </tr>

@@ -170,11 +170,21 @@ const EmergencyRequests = () => {
     try {
       setActionLoadingId(assigningRequestId);
 
+      // Driver details nikalne ke liye
+      const selectedDriver = drivers.find((d) => d.id === driverId);
+      const hospitalName =
+        currentUser?.profile?.full_name || "Apollo Hospital Agra";
+
       const { error: reqError } = await supabase
         .from("emergency_requests")
         .update({
           status: "driver_assigned",
           assigned_driver_id: driverId,
+          // --- YE TEEN LINES ADD KAREIN ---
+          hospital_name: hospitalName,
+          driver_name: selectedDriver?.name,
+          vehicle_no: selectedDriver?.vehicle,
+          // -------------------------------
           updated_at: new Date().toISOString(),
         })
         .eq("id", assigningRequestId);
@@ -186,7 +196,6 @@ const EmergencyRequests = () => {
         .update({ status: "busy" })
         .eq("id", driverId);
 
-      // --- YE SECTION ADD KAREIN (INSTANT UI UPDATE) ---
       setRequests((prev) =>
         prev.map((req) =>
           req.id === assigningRequestId
@@ -194,16 +203,17 @@ const EmergencyRequests = () => {
                 ...req,
                 status: "driver_assigned",
                 assigned_driver_id: driverId,
+                hospital_name: hospitalName,
+                driver_name: selectedDriver?.name,
+                vehicle_no: selectedDriver?.vehicle,
               }
             : req,
         ),
       );
-      // -------------------------------------------------
 
       setShowAssignModal(false);
       setAssigningRequestId(null);
-      // Alert hata sakte hain agar aapko annoyance lag rahi ho
-      alert("✅ Driver Assigned! Status updated.");
+      alert("✅ Driver Assigned & Hospital Info Linked!");
     } catch (error) {
       alert("Assignment failed: " + error.message);
     } finally {
