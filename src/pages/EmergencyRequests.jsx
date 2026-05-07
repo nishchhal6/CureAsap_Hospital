@@ -191,41 +191,53 @@ const EmergencyRequests = () => {
     try {
       setActionLoadingId(assigningRequestId);
 
-      // Driver details nikalne ke liye
       const selectedDriver = drivers.find((d) => d.id === driverId);
-      const hospitalName =
-        currentUser?.profile?.full_name || "Apollo Hospital Agra";
+
+      // 1. Hospital Name (DashboardLayout wali state se lo ya profile se)
+      const hName = currentUser?.profile?.full_name || "SN Medical";
+
+      // 2. Hospital ID (Sabse important check)
+      // Yahan hum multiple options check kar rahe hain taaki ID NULL na jaye
+      const hId =
+        currentUser?.id || currentUser?.hospitalId || currentUser?.uid;
+
+      if (!hId) {
+        alert("Error: Hospital ID not found in session. Please re-login.");
+        return;
+      }
+
+      console.log("Assigning with Hospital ID:", hId); // Debugging ke liye
 
       const { error } = await supabase
         .from("emergency_requests")
         .update({
           status: "driver_assigned",
-          assigned_driver_id: driverId, // DB mein ye column hai
-          hospital_name: hospitalName, // DB mein ye column hai
-          // vehicle_no: selectedDriver?.vehicle, ❌ IS LINE KO HATA DO ya DB mein column add karo
+          assigned_driver_id: driverId,
+          hospital_name: hName,
+          hospital_id: hId, // ✅ Ab ye NULL nahi jayega
         })
         .eq("id", assigningRequestId);
 
-      if (!error) {
-        // Local state update (Ye sahi hai, kyunki ye sirf UI ke liye hai)
-        setRequests((prev) =>
-          prev.map((req) =>
-            req.id === assigningRequestId
-              ? {
-                  ...req,
-                  status: "driver_assigned",
-                  assigned_driver_id: driverId,
-                  hospital_name: hospitalName,
-                  vehicle_no: selectedDriver?.vehicle, // UI ke liye theek hai
-                }
-              : req,
-          ),
-        );
-      }
+      if (error) throw error;
+
+      // UI Update
+      setRequests((prev) =>
+        prev.map((req) =>
+          req.id === assigningRequestId
+            ? {
+                ...req,
+                status: "driver_assigned",
+                assigned_driver_id: driverId,
+                hospital_name: hName,
+                hospital_id: hId,
+              }
+            : req,
+        ),
+      );
 
       setShowAssignModal(false);
       setAssigningRequestId(null);
-      alert("✅ Driver Assigned & Hospital Info Linked!");
+      alert("✅ Driver Assigned & ID Linked!");
     } catch (error) {
       alert("Assignment failed: " + error.message);
     } finally {

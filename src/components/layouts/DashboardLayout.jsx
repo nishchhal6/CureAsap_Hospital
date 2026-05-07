@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+// ✅ Is line ko dhyan se dekho, useNavigate aur useLocation add kar diye hain
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext.jsx";
+import { supabase } from "../../supabase.js";
 import {
   Hospital,
   User,
@@ -19,6 +21,8 @@ const DashboardLayout = () => {
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
   const { logout, currentUser } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const getPageTitle = () => {
     switch (location.pathname) {
       case "/":
@@ -38,18 +42,40 @@ const DashboardLayout = () => {
     }
   };
 
+  // ✅ Supabase Fetch Logic
   const [user, setUser] = useState({
-    hospital: "Apollo Hospitals",
-    name: currentUser?.email?.split("@")[0] || "Hospital Admin",
+    hospital: "",
+    name: currentUser?.email?.split("@")[0] || "Admin",
     role: "Admin",
-    qualifications: "MBBS, MD (Cardiology)",
-    experience: "8 Years",
-    phone: "+91 98765 43210",
+    qualifications: "",
+    experience: "",
+    phone: "",
     alerts: 3,
   });
 
-  const navigate = useNavigate();
-  const location = useLocation();
+  // 2. Ab useEffect likho (Iska order niche hona chahiye state se)
+  useEffect(() => {
+    const fetchHospitalData = async () => {
+      if (!currentUser?.id) return;
+
+      // ✅ FIX: .eq("profile_id", ...) use karo kyunki database mein wahi ID hai
+      const { data, error } = await supabase
+        .from("hospitals")
+        .select("hospital_name")
+        .eq("profile_id", currentUser.id)
+        .maybeSingle();
+
+      if (data && data.hospital_name && data.hospital_name !== "ID Mismatch") {
+        setUser((prev) => ({
+          ...prev,
+          hospital: data.hospital_name,
+          name: currentUser.email.split("@")[0],
+        }));
+      }
+    };
+
+    fetchHospitalData();
+  }, [currentUser]);
 
   const menuItems = [
     { id: "dashboard", title: "Dashboard", icon: Hospital, path: "/" },
@@ -122,6 +148,7 @@ const DashboardLayout = () => {
             <div className="w-12 h-12 bg-gradient-to-r from-primary to-red-600 rounded-2xl flex items-center justify-center">
               <Hospital className="w-7 h-7 text-white" />
             </div>
+            {/* ✅ Real Hospital Name Display */}
             <h2 className="font-bold text-xl text-navy">{user.hospital}</h2>
           </div>
         </div>
@@ -168,16 +195,16 @@ const DashboardLayout = () => {
       </div>
 
       <div className="flex-1 flex flex-col">
+        {/* ✅ Header fixed for "/" route */}
         {location.pathname === "/" && (
           <header className="bg-white border-b border-slate-200 px-8 py-5 flex justify-between relative z-40">
-            <h1 className="text-2xl font-bold">Dashboard Overview</h1>
+            <h1 className="text-2xl font-bold">{getPageTitle()}</h1>
             <div className="relative">
               <button
                 onClick={() => setShowNotifications(!showNotifications)}
                 className="relative p-3 hover:bg-slate-100 rounded-xl"
               >
                 <Bell className="w-6 h-6" />
-
                 {user.alerts > 0 && (
                   <span className="absolute -top-1 -right-1 bg-primary text-white text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold animate-pulse">
                     {user.alerts}
@@ -189,11 +216,9 @@ const DashboardLayout = () => {
                 <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50">
                   <div className="px-6 py-4 border-b border-slate-200">
                     <h3 className="font-bold text-lg flex items-center gap-2">
-                      <Bell className="w-5 h-5" />
-                      Notifications ({user.alerts})
+                      <Bell className="w-5 h-5" /> Notifications ({user.alerts})
                     </h3>
                   </div>
-
                   <div className="max-h-96 overflow-y-auto">
                     {notifications.map((notif) => (
                       <div
@@ -218,7 +243,6 @@ const DashboardLayout = () => {
                               <Truck className="w-5 h-5" />
                             )}
                           </div>
-
                           <div>
                             <p className="font-semibold text-sm">
                               {notif.title}
@@ -242,6 +266,7 @@ const DashboardLayout = () => {
         </main>
       </div>
 
+      {/* Profile Modal code... remains the same */}
       {showProfileModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl w-[420px] p-6 shadow-2xl relative">
@@ -251,11 +276,9 @@ const DashboardLayout = () => {
             >
               <X size={20} />
             </button>
-
             <h2 className="text-xl font-bold text-center mb-5">
               Doctor Profile
             </h2>
-
             <div className="space-y-4">
               <input
                 name="name"
@@ -264,7 +287,6 @@ const DashboardLayout = () => {
                 onChange={handleProfileChange}
                 className="w-full border rounded-lg px-3 py-2"
               />
-
               <input
                 name="qualifications"
                 value={user.qualifications}
@@ -272,7 +294,6 @@ const DashboardLayout = () => {
                 onChange={handleProfileChange}
                 className="w-full border rounded-lg px-3 py-2"
               />
-
               <input
                 name="experience"
                 value={user.experience}
@@ -280,7 +301,6 @@ const DashboardLayout = () => {
                 onChange={handleProfileChange}
                 className="w-full border rounded-lg px-3 py-2"
               />
-
               <input
                 name="phone"
                 value={user.phone}
@@ -289,7 +309,6 @@ const DashboardLayout = () => {
                 className="w-full border rounded-lg px-3 py-2"
               />
             </div>
-
             <div className="flex gap-3 mt-6">
               <button
                 onClick={toggleEditProfile}
@@ -298,7 +317,6 @@ const DashboardLayout = () => {
                 {editingProfile ? <Save size={18} /> : <Edit3 size={18} />}
                 {editingProfile ? "Save" : "Edit"}
               </button>
-
               <button
                 onClick={handleLogout}
                 className="flex-1 border border-red-400 text-red-600 py-2 rounded-lg"

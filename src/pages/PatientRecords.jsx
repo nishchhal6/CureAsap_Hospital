@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 import { useAuth } from "../context/AuthContext.jsx";
 import { User, Phone, MapPin, Clock, CheckCircle, XCircle } from "lucide-react";
+import { useOutletContext } from "react-router-dom";
 
 const PatientRecords = () => {
   const { currentUser } = useAuth();
+  const { user } = useOutletContext();
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -18,19 +20,22 @@ const PatientRecords = () => {
     try {
       setLoading(true);
 
-      // Filter (.eq ya .ilike) hata diya hai taaki agar hospital_name empty bhi ho,
-      // toh records nazar aayein.
+      // DashboardLayout se jo naam aa raha hai (e.g., "SN Medical College")
+      const dashboardName = user.hospital;
+
+      // Agar database mein "SN Medical" hai aur yahan "SN Medical College",
+      // toh hum 'ilike' (case-insensitive search) use kar sakte hain
       const { data, error } = await supabase
         .from("emergency_records")
         .select("*")
+        // .eq ki jagah .ilike use karo taaki partial name bhi match ho jaye
+        .ilike("hospital_name", `%${dashboardName.split(" ")[0]}%`)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-
-      console.log("Fetched Data:", data);
       setRecords(data || []);
     } catch (error) {
-      console.error("Error:", error.message);
+      console.error("Error fetching records:", error.message);
     } finally {
       setLoading(false);
     }
